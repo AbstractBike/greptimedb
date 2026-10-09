@@ -52,6 +52,7 @@ use query::QueryEngineFactory;
 use query::dummy_catalog::{DummyCatalogManager, TableProviderFactoryRef};
 use servers::server::ServerHandlers;
 use snafu::{OptionExt, ResultExt, ensure};
+use store_api::logstore::LogStore;
 use store_api::path_utils::WAL_DIR;
 use store_api::region_engine::{
     RegionEngineRef, RegionRole, SetRegionRoleStateResponse, SettableRegionRoleState,
