@@ -49,7 +49,7 @@ use common_options::plugin_options::StandaloneFlag;
 use common_procedure::ProcedureManagerRef;
 use common_query::prelude::set_default_prefix;
 use common_telemetry::logging::{DEFAULT_LOGGING_DIR, TracingOptions};
-use common_telemetry::{error, info};
+use common_telemetry::info;
 use common_time::timezone::set_default_timezone;
 use common_version::{short_version, verbose_version};
 use datanode::config::{DatanodeOptions, StorageConfig};
@@ -265,7 +265,7 @@ impl App for Instance {
             .downcast_ref::<RaftEngineBackend>()
             && let Err(e) = backend.close().await
         {
-            error!(e; "Failed to close the metadata kv backend");
+            common_telemetry::error!(e; "Failed to close the metadata kv backend");
         }
 
         info!("Datanode instance stopped.");
