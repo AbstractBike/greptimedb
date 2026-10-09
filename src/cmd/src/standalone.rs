@@ -48,8 +48,8 @@ use common_meta::wal_provider::{WalProviderRef, build_wal_provider};
 use common_options::plugin_options::StandaloneFlag;
 use common_procedure::ProcedureManagerRef;
 use common_query::prelude::set_default_prefix;
-use common_telemetry::info;
 use common_telemetry::logging::{DEFAULT_LOGGING_DIR, TracingOptions};
+use common_telemetry::{error, info};
 use common_time::timezone::set_default_timezone;
 use common_version::{short_version, verbose_version};
 use datanode::config::{DatanodeOptions, StorageConfig};
@@ -63,6 +63,7 @@ use frontend::frontend::Frontend;
 use frontend::instance::StandaloneDatanodeManager;
 use frontend::instance::builder::FrontendBuilder;
 use frontend::server::Services;
+use log_store::raft_engine::RaftEngineBackend;
 use meta_srv::metasrv::{FLOW_ID_SEQ, TABLE_ID_SEQ};
 use plugins::PluginOptions;
 use plugins::frontend::context::{
@@ -253,6 +254,19 @@ impl App for Instance {
             .shutdown()
             .await
             .context(error::ShutdownFlownodeSnafu)?;
+
+        // Last, once nothing else uses the metadata: the backend is shared by components
+        // that outlive shutdown, so it has to be closed explicitly, see
+        // [RaftEngineBackend::close].
+        if let Some(backend) = self
+            .leader_services_context
+            .kv_backend
+            .as_any()
+            .downcast_ref::<RaftEngineBackend>()
+            && let Err(e) = backend.close().await
+        {
+            error!(e; "Failed to close the metadata kv backend");
+        }
 
         info!("Datanode instance stopped.");
 

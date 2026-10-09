@@ -85,6 +85,8 @@ pub struct Datanode {
     greptimedb_telemetry_task: Arc<GreptimeDBTelemetryTask>,
     leases_notifier: Option<Arc<Notify>>,
     plugins: Plugins,
+    /// The raft-engine WAL, if any. Stopped after the region server, see [Datanode::shutdown].
+    raft_engine_log_store: Option<Arc<RaftEngineLogStore>>,
 }
 
 impl Datanode {
@@ -144,6 +146,15 @@ impl Datanode {
                 .context(ShutdownInstanceSnafu)?;
         }
         self.region_server.stop().await?;
+        // Regions keep references to the WAL that may outlive shutdown, so it has to be
+        // stopped explicitly for raft-engine to close its active log file.
+        if let Some(log_store) = &self.raft_engine_log_store {
+            log_store
+                .stop()
+                .await
+                .map_err(BoxedError::new)
+                .context(ShutdownInstanceSnafu)?;
+        }
         Ok(())
     }
 
@@ -166,6 +177,7 @@ pub struct DatanodeBuilder {
     topic_stats_reporter: Option<Box<dyn TopicStatsReporter>>,
     open_regions_writable_override: Option<bool>,
     local_file_access: LocalFileAccess,
+    raft_engine_log_store: Option<Arc<RaftEngineLogStore>>,
     #[cfg(feature = "enterprise")]
     extension_range_provider_factory: Option<mito2::extension::BoxedExtensionRangeProviderFactory>,
 }
@@ -181,6 +193,7 @@ impl DatanodeBuilder {
             cache_registry: None,
             open_regions_writable_override: None,
             local_file_access: LocalFileAccess::Disabled,
+            raft_engine_log_store: None,
             #[cfg(feature = "enterprise")]
             extension_range_provider_factory: None,
             topic_stats_reporter: None,
@@ -363,6 +376,7 @@ impl DatanodeBuilder {
             region_event_receiver,
             leases_notifier,
             plugins: self.plugins.clone(),
+            raft_engine_log_store: self.raft_engine_log_store.take(),
         })
     }
 
@@ -568,6 +582,7 @@ impl DatanodeBuilder {
                 let log_store =
                     Self::build_raft_engine_log_store(&opts.storage.data_home, raft_engine_config)
                         .await?;
+                self.raft_engine_log_store = Some(log_store.clone());
 
                 let builder = MitoEngineBuilder::new(
                     &opts.storage.data_home,
