@@ -463,9 +463,29 @@ mod tests {
     use common_test_util::temp_dir::create_temp_dir;
 
     use super::*;
+    use crate::raft_engine::{PREALLOCATED_LEN, log_files_len};
 
     fn build_kv_backend(dir: String) -> RaftEngineBackend {
         RaftEngineBackend::try_open_with_cfg(dir, &KvBackendConfig::default()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_close_closes_active_log_file() {
+        let dir = create_temp_dir("raft-engine-kv-close-test");
+        let backend = build_kv_backend(dir.path().to_str().unwrap().to_string());
+        backend
+            .put(PutRequest {
+                key: b"key".to_vec(),
+                value: b"value".to_vec(),
+                prev_kv: false,
+            })
+            .await
+            .unwrap();
+        assert!(log_files_len(dir.path()) >= PREALLOCATED_LEN);
+
+        backend.close().await.unwrap();
+        assert!(log_files_len(dir.path()) < PREALLOCATED_LEN);
+        assert!(backend.get(b"key").await.is_err());
     }
 
     #[tokio::test]

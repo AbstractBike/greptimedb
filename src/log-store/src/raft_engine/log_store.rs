@@ -568,6 +568,7 @@ mod tests {
     use crate::error::Error;
     use crate::raft_engine::log_store::RaftEngineLogStore;
     use crate::raft_engine::protos::logstore::EntryImpl;
+    use crate::raft_engine::{PREALLOCATED_LEN, log_files_len};
 
     #[tokio::test]
     async fn test_open_logstore() {
@@ -679,6 +680,33 @@ mod tests {
             res.extend(r.unwrap());
         }
         res
+    }
+
+    #[tokio::test]
+    async fn test_stop_closes_active_log_file() {
+        let dir = create_temp_dir("raft-engine-logstore-stop-test");
+        let logstore = RaftEngineLogStore::try_new(
+            dir.path().to_str().unwrap().to_string(),
+            &RaftEngineConfig::default(),
+        )
+        .await
+        .unwrap();
+        logstore
+            .append(EntryImpl::create(1, 1, "1".as_bytes().to_vec()).into())
+            .await
+            .unwrap();
+        assert!(log_files_len(dir.path()) >= PREALLOCATED_LEN);
+
+        // The log store is still referenced, as regions do at shutdown: stop alone has
+        // to close the engine so the preallocated tail is trimmed.
+        logstore.stop().await.unwrap();
+        assert!(log_files_len(dir.path()) < PREALLOCATED_LEN);
+        assert!(
+            logstore
+                .append(EntryImpl::create(2, 1, "2".as_bytes().to_vec()).into())
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
